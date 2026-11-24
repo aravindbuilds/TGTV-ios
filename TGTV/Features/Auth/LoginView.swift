@@ -68,9 +68,16 @@ struct LoginView: View {
                 Button("Continue") {
                     let id = Int64(apiId) ?? store.apiId
                     let hash = apiHash.isEmpty ? store.apiHash : apiHash
-                    Task { try? await td.configure(apiId: id, apiHash: hash) }
+                    Task {
+                        do {
+                            try await td.configure(apiId: id, apiHash: hash)
+                        } catch {
+                            td.lastError = error.localizedDescription
+                        }
+                    }
                 }
                 .buttonStyle(.borderedProminent).tint(.red)
+                .disabled(apiId.isEmpty || apiHash.isEmpty)
                 Text("Get these at my.telegram.org. They are stored only on this device.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
