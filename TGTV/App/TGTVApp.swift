@@ -25,6 +25,7 @@ struct TGTVApp: App {
             .preferredColorScheme(.dark)
             .onAppear { td.start() }
             .task {
+                td.start()
                 guard td.isReady else { return }
                 await backup.restore()
             }

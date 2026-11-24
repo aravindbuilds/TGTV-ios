@@ -34,6 +34,8 @@ final class TDLibService: ObservableObject {
     private var chatObjects: [Int64: Chat] = [:]
     private var configured = false
     private var autoConfigured = false
+    private var started = false
+    private var receivedAnyUpdate = false
     private var downloadedWindows: Set<String> = []
 
     var isReady: Bool { if case .ready = phase { return true } else { return false } }
@@ -43,22 +45,43 @@ final class TDLibService: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
-        guard manager == nil else { return }
-        let mgr = TDLibClientManager()
-        manager = mgr
-        client = mgr.createClient { [weak self] data, _ in
-            guard let self else { return }
-            do {
-                let update = try JSONDecoder().decode(Update.self, from: data)
-                Task { @MainActor in self.handle(update) }
-            } catch {
-                print("[TGTV] update decode failed: \(error)")
+        guard !started else { return }
+        started = true
+        print("[TGTV] start() creating TDLib client")
+        do {
+            let mgr = TDLibClientManager()
+            manager = mgr
+            client = mgr.createClient { [weak self] data, _ in
+                guard let self else { return }
+                do {
+                    let update = try JSONDecoder().decode(Update.self, from: data)
+                    Task { @MainActor in self.receivedAnyUpdate = true }
+                    print("[TGTV] update: \(String(reflecting: update).prefix(90))")
+                    Task { @MainActor in self.handle(update) }
+                } catch {
+                    print("[TGTV] update decode failed: \(error)")
+                }
             }
+            phase = .waitParameters
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                guard let self, !self.isReady, !self.receivedAnyUpdate else { return }
+                self.phase = .failed("TDLib did not initialize. Check your internet connection and try again.")
+            }
+        } catch {
+            print("[TGTV] TDLib init failed: \(error)")
+            phase = .failed("Could not start Telegram engine: \(error.localizedDescription)")
         }
-        phase = .idle
     }
 
     func shutdown() { manager?.closeClients(); manager = nil; client = nil }
+
+    func restart() {
+        shutdown()
+        started = false
+        receivedAnyUpdate = false
+        start()
+    }
 
     // MARK: - Update handling
 

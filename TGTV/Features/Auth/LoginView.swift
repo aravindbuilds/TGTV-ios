@@ -131,7 +131,7 @@ struct LoginView: View {
         case .failed(let message):
             VStack(spacing: 12) {
                 Text(message).foregroundStyle(.red)
-                Button("Try again") { td.start() }
+                Button("Try again") { td.restart() }
             }
         }
     }
