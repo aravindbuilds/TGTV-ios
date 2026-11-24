@@ -56,7 +56,7 @@ final class PlayerModel: ObservableObject {
             Task { @MainActor in self?.isPlaying = false }
         }
         if let start = startAt, start > 0 {
-            player.seek(to: CMTime(value: start, timescale: 1000))
+            await player.seek(to: CMTime(value: start, timescale: 1000))
         }
         player.play()
         isPlaying = true
@@ -71,7 +71,7 @@ final class PlayerModel: ObservableObject {
 
     func skip(_ seconds: Double) {
         let time = player.currentTime() + CMTime(seconds: seconds, preferredTimescale: 600)
-        player.seek(to: time)
+        Task { await player.seek(to: time) }
     }
 
     func setSpeed(_ value: Float) {
@@ -89,7 +89,7 @@ final class PlayerModel: ObservableObject {
     func seek(to fraction: Double) {
         guard duration > 0 else { return }
         let target = CMTime(value: Int64(Double(duration) * fraction), timescale: 1000)
-        player.seek(to: target)
+        Task { await player.seek(to: target) }
     }
 
     func attachSubtitles(_ path: String) {
