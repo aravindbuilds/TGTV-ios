@@ -1,5 +1,8 @@
 # TGTV-ios
 
+> **Current status / handoff:** see [STATUS.md](STATUS.md) for what is done,
+> the open login issue, and the exact next steps.
+
 Native iOS client for TGTV — a SwiftUI port of the Android app in
 [`TGTVMobile`](https://github.com/aravindbuilds/TGTVMobile). The app uses the
 same Telegram TDLib backend, TMDB metadata, OpenSubtitles lookups, and the exact
