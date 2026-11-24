@@ -1,0 +1,48 @@
+name: TGTV
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  TDLibKit:
+    url: https://github.com/Swiftgram/TDLibKit
+    exact: 1.5.2-tdlib-1.8.70-61f1d106
+
+targets:
+  TGTV:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: TGTV
+        excludes:
+          - "Info.plist"
+    resources:
+      - path: TGTV/Resources
+    infoPlist:
+      path: TGTV/Info.plist
+    dependencies:
+      - package: TDLibKit
+    settings:
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.tgtv.iphone
+          SWIFT_VERSION: "5.10"
+          ENABLE_BITCODE: NO
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: com.tgtv.iphone
+          SWIFT_VERSION: "5.10"
+          ENABLE_BITCODE: NO
+          VALIDATE_PRODUCT: YES
+
+schemes:
+  TGTV:
+    build:
+      targets:
+        TGTV: [build, run, test, profile, analyze, archive]
+    run:
+      configuration: Debug
+    archive:
+      configuration: Release
