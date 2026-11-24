@@ -84,10 +84,11 @@ Simulator builds work locally with Xcode; device/IPA builds need signing.
 
 ## Known differences from the Android app
 
-- Playback downloads the Telegram file locally before AVPlayer starts. The
-  Android app uses a custom byte-range data source over TDLib's partial file;
-  AVPlayer needs a local file or a local HTTP proxy, so a full download is used
-  here for reliability.
+- Playback streams progressively through a localhost byte-range HTTP proxy
+  backed by TDLib's partial file, matching the Android app's custom data source.
+  Windows of 2 MB are pulled on demand (1 KiB aligned) and the next window is
+  warmed ahead. Files that are already fully cached fall back to direct local
+  playback.
 - OTA APK updates and Android launcher-icon switching do not apply on iOS.
   Releases are distributed as IPAs via GitHub Actions instead.
 - The movie request wizard covers search, gate replies and saving arriving

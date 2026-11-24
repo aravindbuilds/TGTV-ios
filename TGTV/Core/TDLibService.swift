@@ -34,6 +34,7 @@ final class TDLibService: ObservableObject {
     private var chatObjects: [Int64: Chat] = [:]
     private var configured = false
     private var autoConfigured = false
+    private var downloadedWindows: Set<String> = []
 
     var isReady: Bool { if case .ready = phase { return true } else { return false } }
     var savedMessagesChatId: Int64? { me?.id }
@@ -310,6 +311,62 @@ final class TDLibService: ObservableObject {
     func thumbnailPath(for item: VideoItem) async -> String? {
         guard let id = item.thumbnailFileId else { return nil }
         return await localPath(for: id)
+    }
+
+    // MARK: - Progressive streaming support
+
+    func fileSize(for fileId: Int) async -> Int64 {
+        guard let client, let file = try? await client.getFile(fileId: fileId) else { return 0 }
+        return max(file.size, file.expectedSize)
+    }
+
+    /// Ensures the bytes in [start, end] are present in TDLib's partial file.
+    /// TDLib completes a `downloadFile(offset:limit:)` request only once that
+    /// window is written, so awaiting it is enough before reading the range.
+    @discardableResult
+    func ensureRange(fileId: Int, start: Int64, end: Int64) async -> Bool {
+        guard let client else { return false }
+        let aligned = max(0, (start / 1024) * 1024)
+        let limit = max(1, end + 1 - aligned)
+        let key = "\(fileId):\(aligned):\(limit)"
+        if downloadedWindows.contains(key) { return true }
+
+        if let file = try? await client.getFile(fileId: fileId),
+           !file.local.path.isEmpty,
+           file.local.isDownloadingCompleted || file.local.downloadedPrefixSize >= end + 1 {
+            downloadedWindows.insert(key)
+            return true
+        }
+
+        do {
+            let file = try await client.downloadFile(
+                fileId: fileId, limit: limit, offset: aligned, priority: 32, synchronous: false
+            )
+            if !file.local.path.isEmpty {
+                downloadedWindows.insert(key)
+                return true
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+        for _ in 0..<60 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if let file = try? await client.getFile(fileId: fileId), !file.local.path.isEmpty,
+               file.local.isDownloadingCompleted || file.local.downloadedPrefixSize >= end + 1 {
+                downloadedWindows.insert(key)
+                return true
+            }
+        }
+        return false
+    }
+
+    func readRange(fileId: Int, offset: Int64, length: Int64) async -> Data? {
+        guard let client, let file = try? await client.getFile(fileId: fileId),
+              !file.local.path.isEmpty else { return nil }
+        guard let handle = FileHandle(forReadingAtPath: file.local.path) else { return nil }
+        defer { try? handle.close() }
+        try? handle.seek(toOffset: UInt64(offset))
+        return try? handle.read(upToCount: Int(length))
     }
 
     // MARK: - Messages (backup / progress sync / requests)

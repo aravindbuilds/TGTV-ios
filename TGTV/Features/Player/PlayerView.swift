@@ -19,6 +19,9 @@ final class PlayerModel: ObservableObject {
     private var observer: Any?
     private var cues: [SubtitleCue] = []
     private var loaded = false
+    private var proxy: TDLibStreamProxy?
+
+    deinit { proxy?.stop() }
 
     init(item: VideoItem, startAt: Int64? = nil) {
         self.item = item
@@ -28,17 +31,29 @@ final class PlayerModel: ObservableObject {
     func load() async {
         guard !loaded else { return }
         loaded = true
-        status = "Fetching from Telegram…"
-        guard let path = await TDLibService.shared.localPath(for: item.fileId) else {
+        status = "Streaming from Telegram…"
+
+        var playerItem: AVPlayerItem?
+        let size = await TDLibService.shared.fileSize(for: item.fileId)
+        let stream = TDLibStreamProxy(fileId: item.fileId, size: size > 0 ? size : item.fileSize)
+        do {
+            let url = try await stream.start()
+            proxy = stream
+            playerItem = AVPlayerItem(url: url)
+        } catch {
+            // Fallback: TDLib may already have the whole file cached locally.
+            if let path = await TDLibService.shared.localPath(for: item.fileId) {
+                playerItem = AVPlayerItem(url: URL(fileURLWithPath: path))
+            }
+        }
+        guard let playerItem else {
             status = "Could not load file"
             errorMessage = TDLibService.shared.lastError ?? "The file is not available offline."
             return
         }
-        let asset = AVAsset(url: URL(fileURLWithPath: path))
-        let playerItem = AVPlayerItem(asset: asset)
         player.replaceCurrentItem(with: playerItem)
 
-        if let duration = try? await asset.load(.duration) {
+        if let duration = try? await playerItem.asset.load(.duration) {
             self.duration = Int64(duration.seconds * 1000)
         }
         observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4), queue: .main) { [weak self] time in
