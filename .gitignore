@@ -32,3 +32,6 @@ Payload/
 # OS
 .DS_Store
 Thumbs.db
+
+# Tool logs
+*.log
