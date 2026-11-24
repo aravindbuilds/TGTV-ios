@@ -56,7 +56,7 @@ final class PlayerModel: ObservableObject {
             Task { @MainActor in self?.isPlaying = false }
         }
         if let start = startAt, start > 0 {
-            player.seek(to: CMTime(milliseconds: start))
+            player.seek(to: CMTime(value: start, timescale: 1000))
         }
         player.play()
         isPlaying = true
@@ -88,7 +88,7 @@ final class PlayerModel: ObservableObject {
 
     func seek(to fraction: Double) {
         guard duration > 0 else { return }
-        let target = CMTime(milliseconds: Int64(Double(duration) * fraction))
+        let target = CMTime(value: Int64(Double(duration) * fraction), timescale: 1000)
         player.seek(to: target)
     }
 
@@ -141,12 +141,6 @@ struct SubtitleCue {
     let start: Int64
     let end: Int64
     let text: String
-}
-
-extension CMTime {
-    static func milliseconds(_ value: Int64) -> CMTime {
-        CMTime(value: value, timescale: 1000)
-    }
 }
 
 struct PlayerLayer: UIViewRepresentable {

@@ -25,9 +25,10 @@ final class CloudBackup: ObservableObject {
         await backup(now: now)
     }
 
-    func backup(now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) async {
+    func backup(force: Bool = false, now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) async {
         guard let saved = await TDLibService.shared.savedMessagesChatId,
               !TDLibService.shared.isBot else { return }
+        _ = force // manual backups always run; throttling happens in request(force:)
         working = true
         defer { working = false }
 

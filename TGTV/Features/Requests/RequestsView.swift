@@ -100,6 +100,6 @@ struct RequestsView: View {
         }
         .navigationTitle("Movie requests")
         .onAppear { botHandle = store.requestBot }
-        .onChange(of: botHandle) { store.requestBot = botHandle }
+        .onChange(of: botHandle) { newValue in store.requestBot = newValue }
     }
 }

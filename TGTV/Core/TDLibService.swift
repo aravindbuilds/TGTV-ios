@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import TDLibKit
 
 /// Thin SwiftUI-facing wrapper around TDLibKit. Mirrors `com.tgtv.mobile.td.TdLib`:
@@ -238,14 +239,14 @@ final class TDLibService: ObservableObject {
         for chatId in chatIds {
             let title = chatObjects[chatId]?.title ?? ""
             if let messages = try? await client.getChatHistory(chatId: chatId, fromMessageId: 0, limit: 100, offset: 0, onlyLocal: false) {
-                for message in messages.messages {
+                for message in messages.messages ?? [] {
                     if let item = TDLibService.map(message: message, chatTitle: title) { items.append(item) }
                 }
             } else if let messages = try? await client.searchChatMessages(
                 chatId: chatId, filter: .searchMessagesFilterVideo, fromMessageId: 0,
                 limit: 100, offset: 0, query: "", senderId: nil, topicId: nil
             ) {
-                for message in messages.messages {
+                for message in messages.messages ?? [] {
                     if let item = TDLibService.map(message: message, chatTitle: title) { items.append(item) }
                 }
             }
@@ -258,7 +259,7 @@ final class TDLibService: ObservableObject {
     func loadSelectedLibrary() async {
         let ids = Store.shared.selectedChatIds
         if ids.isEmpty {
-            if let saved = Store.shared.savedMessagesChatId {
+            if let saved = savedMessagesChatId {
                 Store.shared.selectedChatIds = [saved]
                 await loadLibrary(chatIds: [saved])
             } else if let first = chats.first(where: { $0.isPrivate }) {
@@ -368,7 +369,7 @@ final class TDLibService: ObservableObject {
                 chatId: chatId, filter: nil, fromMessageId: 0, limit: limit,
                 offset: 0, query: query, senderId: nil, topicId: nil
             )
-            return found.messages
+            return found.messages ?? []
         } catch { return [] }
     }
 

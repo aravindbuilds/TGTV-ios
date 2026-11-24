@@ -174,7 +174,7 @@ final class TMDBClient {
     }
 
     private func fileURL(_ key: String) -> URL {
-        cacheDir.appendingPathComponent(key.utf8.md5 + ".json")
+        cacheDir.appendingPathComponent(key.md5 + ".json")
     }
     private func read(_ key: String) -> Info? {
         guard let data = try? Data(contentsOf: fileURL(key)),
@@ -190,7 +190,6 @@ final class TMDBClient {
 extension String {
     var md5: String {
         let bytes = Array(self.utf8)
-        var digest = [UInt8](repeating: 0, count: 16)
         var length = UInt32(bytes.count) &* 8
         var message = bytes
         message.append(0x80)
