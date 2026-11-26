@@ -47,7 +47,8 @@ final class TDLibService: ObservableObject {
     func start() {
         guard !started else { return }
         started = true
-        print("[TGTV] start() creating TDLib client")
+        TGTVLog.write("start() creating TDLib client")
+        TGTVLog.write("baked apiId present: \(GeneratedSecrets.apiId > 0), baked hash length: \(GeneratedSecrets.apiHash.count), stored id present: \(Store.shared.apiId > 0), hasAPI: \(Store.shared.hasAPI)")
         do {
             let mgr = TDLibClientManager()
             manager = mgr
@@ -56,10 +57,13 @@ final class TDLibService: ObservableObject {
                 do {
                     let update = try JSONDecoder().decode(Update.self, from: data)
                     Task { @MainActor in self.receivedAnyUpdate = true }
-                    print("[TGTV] update: \(String(reflecting: update).prefix(90))")
+                    if case .updateAuthorizationState(let value) = update {
+                        let name = String(describing: value.authorizationState)
+                        TGTVLog.write("auth state: \(name.prefix(120))")
+                    }
                     Task { @MainActor in self.handle(update) }
                 } catch {
-                    print("[TGTV] update decode failed: \(error)")
+                    TGTVLog.write("update decode failed: \(error)")
                 }
             }
             phase = .waitParameters
@@ -67,10 +71,11 @@ final class TDLibService: ObservableObject {
                 try? await Task.sleep(nanoseconds: 12_000_000_000)
                 guard let self, !self.isReady, !self.receivedAnyUpdate else { return }
                 self.phase = .failed("TDLib did not initialize. Check your internet connection and try again.")
+                TGTVLog.write("init timeout: no updates received")
             }
         } catch {
-            print("[TGTV] TDLib init failed: \(error)")
-            phase = .failed("Could not start Telegram engine: \(error.localizedDescription)")
+            TGTVLog.write("TDLib init failed: \(tgErrorText(error))")
+            phase = .failed("Could not start Telegram engine: \(tgErrorText(error))")
         }
     }
 
@@ -80,7 +85,18 @@ final class TDLibService: ObservableObject {
         shutdown()
         started = false
         receivedAnyUpdate = false
+        configured = false
+        autoConfigured = false
+        lastError = nil
+        phase = .idle
         start()
+    }
+
+    /// Records an error for the UI and the on-device log.
+    private func fail(_ error: Swift.Error) {
+        let text = tgErrorText(error)
+        lastError = text
+        TGTVLog.write("error: \(text)")
     }
 
     // MARK: - Update handling
@@ -119,7 +135,16 @@ final class TDLibService: ObservableObject {
             phase = .waitParameters
             if Store.shared.hasAPI && !autoConfigured {
                 autoConfigured = true
-                Task { try? await configure(apiId: Store.shared.apiId, apiHash: Store.shared.apiHash) }
+                let id = Store.shared.apiId
+                let hash = Store.shared.apiHash
+                Task { [weak self] in
+                    guard let self else { return }
+                    do {
+                        try await self.configure(apiId: id, apiHash: hash)
+                    } catch {
+                        self.fail(error)
+                    }
+                }
             }
         case .authorizationStateWaitPhoneNumber:
             phase = .waitPhoneNumber
@@ -156,16 +181,25 @@ final class TDLibService: ObservableObject {
     // MARK: - Authentication
 
     func configure(apiId: Int64, apiHash: String) async throws {
-        guard let client else { return }
+        guard let client else { throw TGTVError("Telegram engine is not running yet.") }
+        var hash = apiHash.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Tolerate quotes pasted in from a properties file or secret.
+        if hash.count >= 2, hash.hasPrefix("\""), hash.hasSuffix("\"") {
+            hash = String(hash.dropFirst().dropLast())
+        }
+        guard apiId > 0, hash.count >= 30 else {
+            throw TGTVError("API ID (an integer) and API hash (~32 characters) are required.")
+        }
+        lastError = nil
         Store.shared.apiId = apiId
-        Store.shared.apiHash = apiHash
+        Store.shared.apiHash = hash
         let paths = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let db = paths.appendingPathComponent("tdlib", isDirectory: true).path
         let files = paths.appendingPathComponent("tdlib_files", isDirectory: true).path
         try? FileManager.default.createDirectory(atPath: db, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(atPath: files, withIntermediateDirectories: true)
         _ = try await client.setTdlibParameters(
-            apiHash: apiHash,
+            apiHash: hash,
             apiId: Int(apiId),
             applicationVersion: "1.0",
             databaseDirectory: db,
@@ -181,26 +215,40 @@ final class TDLibService: ObservableObject {
             useTestDc: false
         )
         configured = true
+        TGTVLog.write("setTdlibParameters accepted (hash length \(hash.count))")
     }
 
     func signIn(phone: String) async {
         do {
             busy = true; lastError = nil
-            Store.shared.phone = phone
+            let digits = phone.filter { $0.isNumber }
+            guard (6...14).contains(digits.count) else {
+                throw TGTVError("Enter the number without the country code (6–14 digits).")
+            }
+            let full = "+" + digits
+            Store.shared.phone = full
             Store.shared.sessionIsBot = false
-            _ = try await client?.setAuthenticationPhoneNumber(phoneNumber: phone, settings: nil)
-        } catch { lastError = error.localizedDescription }
+            _ = try await client?.setAuthenticationPhoneNumber(phoneNumber: full, settings: nil)
+        } catch { fail(error) }
+        busy = false
+    }
+
+    func resendCode() async {
+        do {
+            busy = true; lastError = nil
+            _ = try await client?.resendAuthenticationCode(reason: nil)
+        } catch { fail(error) }
         busy = false
     }
 
     func signIn(botToken: String) async {
         do {
             busy = true; lastError = nil
-            guard botToken.contains(":") else { throw NSError(domain: "TGTV", code: 1, userInfo: [NSLocalizedDescriptionKey: "Enter a valid BotFather token"]) }
+            guard botToken.contains(":") else { throw TGTVError("Enter a valid BotFather token") }
             Store.shared.botToken = botToken
             Store.shared.sessionIsBot = true
             _ = try await client?.checkAuthenticationBotToken(token: botToken)
-        } catch { lastError = error.localizedDescription }
+        } catch { fail(error) }
         busy = false
     }
 
@@ -208,7 +256,7 @@ final class TDLibService: ObservableObject {
         do {
             busy = true; lastError = nil
             _ = try await client?.checkAuthenticationCode(code: code)
-        } catch { lastError = error.localizedDescription }
+        } catch { fail(error) }
         busy = false
     }
 
@@ -216,7 +264,7 @@ final class TDLibService: ObservableObject {
         do {
             busy = true; lastError = nil
             _ = try await client?.checkAuthenticationPassword(password: password)
-        } catch { lastError = error.localizedDescription }
+        } catch { fail(error) }
         busy = false
     }
 
@@ -224,7 +272,7 @@ final class TDLibService: ObservableObject {
         do {
             busy = true
             _ = try await client?.registerUser(disableNotification: false, firstName: firstName, lastName: lastName)
-        } catch { lastError = error.localizedDescription }
+        } catch { fail(error) }
         busy = false
     }
 
@@ -233,11 +281,11 @@ final class TDLibService: ObservableObject {
             me = try await client?.getMe()
             try await loadChats()
             await loadSelectedLibrary()
-        } catch { lastError = error.localizedDescription }
+        } catch { fail(error) }
     }
 
     func signOut() async {
-        do { _ = try await client?.logOut() } catch { lastError = error.localizedDescription }
+        do { _ = try await client?.logOut() } catch { fail(error) }
         Store.shared.clearSession()
         library = []; chats = []; chatObjects = [:]
     }
@@ -320,7 +368,7 @@ final class TDLibService: ObservableObject {
         do {
             let file = try await client.downloadFile(fileId: fileId, limit: 0, offset: 0, priority: 32, synchronous: false)
             if file.local.isDownloadingCompleted, !file.local.path.isEmpty { return file.local.path }
-        } catch { lastError = error.localizedDescription }
+        } catch { fail(error) }
         // Poll briefly until TDLib reports completion in updateFile.
         for _ in 0..<120 {
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -370,7 +418,7 @@ final class TDLibService: ObservableObject {
                 return true
             }
         } catch {
-            lastError = error.localizedDescription
+            fail(error)
         }
         for _ in 0..<60 {
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -403,7 +451,7 @@ final class TDLibService: ObservableObject {
                 options: nil, replyMarkup: nil, replyTo: nil, topicId: nil
             )
             return message.id
-        } catch { lastError = error.localizedDescription; return nil }
+        } catch { fail(error); return nil }
     }
 
     func editText(chatId: Int64, messageId: Int64, text: String) async {
@@ -437,7 +485,7 @@ final class TDLibService: ObservableObject {
             )
             return message.id
         } catch {
-            lastError = error.localizedDescription
+            fail(error)
             return nil
         }
     }

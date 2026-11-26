@@ -36,6 +36,7 @@ final class Store: ObservableObject {
         set { set(newValue, "api_hash") }
     }
     var phone: String { get { string("phone") } set { set(newValue, "phone") } }
+    var dialCode: String { get { string("dial_code", CountryCodes.defaultDial) } set { set(newValue, "dial_code") } }
     var botToken: String { get { string("bot_token") } set { set(newValue, "bot_token") } }
     var hasAPI: Bool { (apiId > 0 && apiHash.count >= 30) || !botToken.isEmpty }
 
