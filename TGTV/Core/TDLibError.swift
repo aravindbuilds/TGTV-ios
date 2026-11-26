@@ -21,3 +21,12 @@ struct TGTVError: LocalizedError {
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
 }
+
+/// TDLib emits snake_case JSON (`authorization_state`, `@type`), while TDLibKit's
+/// generated models are camelCase. This decoder matches the one TDLibKit builds
+/// internally; without it every update fails with `keyNotFound`.
+let tgUpdateDecoder: JSONDecoder = {
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    return decoder
+}()

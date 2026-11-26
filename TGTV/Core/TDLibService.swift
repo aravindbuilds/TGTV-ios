@@ -55,7 +55,7 @@ final class TDLibService: ObservableObject {
             client = mgr.createClient { [weak self] data, _ in
                 guard let self else { return }
                 do {
-                    let update = try JSONDecoder().decode(Update.self, from: data)
+                    let update = try tgUpdateDecoder.decode(Update.self, from: data)
                     Task { @MainActor in self.receivedAnyUpdate = true }
                     if case .updateAuthorizationState(let value) = update {
                         let name = String(describing: value.authorizationState)
@@ -63,7 +63,11 @@ final class TDLibService: ObservableObject {
                     }
                     Task { @MainActor in self.handle(update) }
                 } catch {
-                    TGTVLog.write("update decode failed: \(error)")
+                    var type = "unknown"
+                    if let object = try? JSONSerialization.jsonObject(with: data),
+                       let dict = object as? [String: Any],
+                       let name = dict["@type"] as? String { type = name }
+                    TGTVLog.write("update decode failed (\(type)): \(error)")
                 }
             }
             phase = .waitParameters
